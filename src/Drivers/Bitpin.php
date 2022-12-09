@@ -1,6 +1,6 @@
 <?php
 
-namespace Alikhedmati\Exchange\Drivers;
+namespace AliKhedmati\Exchange\Drivers;
 
 use Illuminate\Support\Collection;
 

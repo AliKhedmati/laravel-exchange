@@ -2,13 +2,22 @@
 
 namespace AliKhedmati\Exchange;
 
-use Alikhedmati\Exchange\Exchanges\Bitpin;
-use Alikhedmati\Exchange\Exchanges\Nobitex;
-use Alikhedmati\Exchange\Exchanges\Wallex;
+use AliKhedmati\Exchange\Drivers\Bitpin;
+use AliKhedmati\Exchange\Drivers\Nobitex;
+use AliKhedmati\Exchange\Drivers\Wallex;
 use Illuminate\Support\Manager;
 
 class ExchangeManager extends Manager
 {
+    /**
+     * @return Utils\Utils
+     */
+
+    public function utils(): Utils\Utils
+    {
+        return new Utils\Utils();
+    }
+
     /**
      * @param $exchange
      * @return mixed

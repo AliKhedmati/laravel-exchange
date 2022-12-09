@@ -1,11 +1,14 @@
 <?php
 
-namespace Alikhedmati\Exchange\Drivers;
+namespace AliKhedmati\Exchange\Drivers;
 
+use AliKhedmati\Exchange\Exceptions\ExchangeException;
+use AliKhedmati\Exchange\Utils\Utils;
 use GuzzleHttp\Client;
 use GuzzleHttp\Exception\GuzzleException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Log;
 
 class Nobitex
 {
@@ -13,7 +16,7 @@ class Nobitex
      * Nobitex Class Constructor.
      */
 
-    public function __construct(private readonly string $restApiBase, private readonly string $apiKey) {}
+    public function __construct(private readonly string $restApiBase, private readonly ?string $apiKey = null) {}
 
     /**
      * @param bool $isAuthenticated
@@ -28,7 +31,7 @@ class Nobitex
             'User-Agent'    =>  'TraderBot/' . config('app.name')
         ];
 
-        if ($isAuthenticated){
+        if ($isAuthenticated && $this->apiKey){
 
             $headers['Authorization'] = 'Token ' . $this->apiKey;
 
@@ -42,17 +45,9 @@ class Nobitex
     }
 
     /**
-     * @return string
-     */
-
-    public function getAccessToken(): string
-    {
-        return config('crypto-exchange.providers.nobitex.api-key');
-    }
-
-    /**
+     * Tested.
      * @return Collection
-     * @throws GuzzleException|CryptoExchangeException
+     * @throws GuzzleException|ExchangeException
      */
 
     public function getMarkets(): Collection
@@ -69,7 +64,7 @@ class Nobitex
 
         if ($request->getStatusCode() != 200){
 
-            throw new CryptoExchangeException(json_decode($request->getBody()->getContents()));
+            throw new ExchangeException(json_decode($request->getBody()->getContents())->message);
 
         }
 
@@ -77,15 +72,20 @@ class Nobitex
          * Cast and return.
          */
 
-        return collect(json_decode($request->getBody()->getContents()))->except('status')
+        return collect(json_decode($request->getBody()->getContents()))
+            ->except(['status'])
             ->map(fn($i) => collect($i)->only('lastTradePrice')->values()->first())
-            ->reject(fn($i) => !isset($i[0][0]))
-            ->map(fn($value, $key) => str_contains($key, 'IRT') ? (string)($value / 10) : $value);
+            ->reject(fn($value) => !isset($value[0][0]))
+            ->mapWithKeys(function ($price, $market){
+                return [
+                    Utils::getHyphenatedMarketName($market) => Utils::castFloat(str_contains($market, 'IRT') ? ($price / 10) : $price)
+                ];
+            });
     }
 
     /**
      * @return Collection
-     * @throws CryptoExchangeException|GuzzleException
+     * @throws ExchangeException|GuzzleException
      */
 
     public function getProfile(): Collection
@@ -94,7 +94,7 @@ class Nobitex
 
         if ($request->getStatusCode() != 200){
 
-            throw new CryptoExchangeException(json_decode($request->getBody()->getContents()));
+            throw new ExchangeException(json_decode($request->getBody()->getContents())->message);
 
         }
 
@@ -103,10 +103,8 @@ class Nobitex
 
     /**
      * @return Collection
-     * @throws GuzzleException|CryptoExchangeException
+     * @throws GuzzleException|ExchangeException
      */
-
-    // Todo: RLS To IRT.
 
     public function getOrders(): Collection
     {
@@ -119,7 +117,7 @@ class Nobitex
 
         if ($request->getStatusCode() != 200){
 
-            throw new CryptoExchangeException(json_decode($request->getBody()->getContents()));
+            throw new ExchangeException(json_decode($request->getBody()->getContents())->message);
 
         }
 
@@ -129,7 +127,7 @@ class Nobitex
     /**
      * @param string $order
      * @return Collection
-     * @throws GuzzleException|CryptoExchangeException
+     * @throws GuzzleException|ExchangeException
      */
 
     public function getOrder(string $order): Collection
@@ -142,7 +140,7 @@ class Nobitex
 
         if ($request->getStatusCode() != 200){
 
-            throw new CryptoExchangeException(json_decode($request->getBody()->getContents()));
+            throw new ExchangeException(json_decode($request->getBody()->getContents())->message);
 
         }
 
@@ -151,7 +149,7 @@ class Nobitex
 
     /**
      * @return Collection
-     * @throws GuzzleException|CryptoExchangeException
+     * @throws GuzzleException|ExchangeException
      */
 
     public function getLoginAttempts(): Collection
@@ -160,7 +158,7 @@ class Nobitex
 
         if ($request->getStatusCode() != 200){
 
-            throw new CryptoExchangeException(json_decode($request->getBody()->getContents()));
+            throw new ExchangeException(json_decode($request->getBody()->getContents())->message);
 
         }
 
@@ -169,7 +167,7 @@ class Nobitex
 
     /**
      * @return Collection
-     * @throws GuzzleException|CryptoExchangeException
+     * @throws GuzzleException|ExchangeException
      */
 
     public function getWallets(): Collection
@@ -178,7 +176,7 @@ class Nobitex
 
         if ($request->getStatusCode() != 200){
 
-            throw new CryptoExchangeException(json_decode($request->getBody()->getContents()));
+            throw new ExchangeException(json_decode($request->getBody()->getContents())->message);
 
         }
 
@@ -186,9 +184,10 @@ class Nobitex
     }
 
     /**
+     * Tested.
      * @param string $market
      * @return Collection
-     * @throws CryptoExchangeException
+     * @throws ExchangeException
      * @throws GuzzleException
      */
 
@@ -198,7 +197,7 @@ class Nobitex
          * Make request.
          */
 
-        $request = $this->client()->get('v2/trades/' . $market);
+        $request = $this->client()->get('v2/trades/' . Utils::getConcatenatedMarketName($market));
 
         /**
          * Handle Failure.
@@ -206,7 +205,7 @@ class Nobitex
 
         if ($request->getStatusCode() != 200){
 
-            throw new CryptoExchangeException(json_decode($request->getBody()->getContents()));
+            throw new ExchangeException(json_decode($request->getBody()->getContents())->message);
 
         }
 
@@ -214,19 +213,23 @@ class Nobitex
          * Cast and return.
          */
 
-        return collect(json_decode($request->getBody()->getContents()));
+        return collect(json_decode($request->getBody()->getContents())->trades)->map(function ($item) use ($market){
+            $item->price = Utils::castFloat($item->price * (str($market)->contains('IRT') ? .1 : 1));
+            return $item;
+        });
     }
 
     /**
+     * Tested.
      * @param string $market
      * @return Collection
-     * @throws CryptoExchangeException
+     * @throws ExchangeException
      * @throws GuzzleException
      */
 
     public function getMarketOrderBook(string $market): Collection
     {
-        $request = $this->client()->get('v2/orderbook/' . $market);
+        $request = $this->client()->get('v2/orderbook/' . Utils::getConcatenatedMarketName($market));
 
         /**
          * Handle Failure.
@@ -234,7 +237,7 @@ class Nobitex
 
         if ($request->getStatusCode() != 200){
 
-            throw new CryptoExchangeException(json_decode($request->getBody()->getContents()));
+            throw new ExchangeException(json_decode($request->getBody()->getContents())->message);
 
         }
 
@@ -242,54 +245,64 @@ class Nobitex
          * Cast and Return.
          */
 
-        return collect(json_decode($request->getBody()->getContents()));
+        return collect(json_decode($request->getBody()->getContents()))->only(['bids', 'asks'])->map(function ($item, $list) use ($market){
+            return collect($item)->map(function ($item) use ($market){
+                $item[0] = Utils::castFloat($item[0] * (str($market)->contains('IRT') ? .1 : 1));
+                return $item;
+            });
+        });
     }
 
     /**
+     * Tested.
      * @param string $market
      * @return Collection
-     * @throws CryptoExchangeException
+     * @throws ExchangeException
      * @throws GuzzleException
      */
 
     public function getMarketTicker(string $market): Collection
     {
-        /**
-         * Cast Market.
-         */
+        $market = Utils::getHyphenatedMarketName($market);
 
-        $market = explode('-', $market);
+        $marketExploded = explode('-', $market);
 
         $request = $this->client()->get('market/stats', [
             'query' =>  [
-                'srcCurrency'   =>  $market[0],
-                'dstCurrency'   =>  $market[1]
+                'srcCurrency'   =>  $marketExploded[0],
+                'dstCurrency'   =>  $marketExploded[1]
             ],
         ]);
 
         if ($request->getStatusCode() != 200){
 
-            throw new CryptoExchangeException(json_decode($request->getBody()->getContents()));
+            throw new ExchangeException(json_decode($request->getBody()->getContents())->message);
 
         }
+
+        $data = collect(collect(json_decode($request->getBody()->getContents())->stats)->flatten()->first());
 
         /**
          * Cast and Return.
          */
 
-        return collect(json_decode($request->getBody()->getContents()));
+        return $data->except(['isClosed', 'dayChange', 'volumeSrc'])->map(function ($item) use ($market){
+            return Utils::castFloat(str($market)->contains('IRT') ? $item * .1 : $item);
+        })->merge($data->only(['isClosed', 'dayChange', 'volumeSrc']));
     }
 
     /**
+     * Tested.
      * @param string $market
      * @param string $starting_from
      * @param string $ending_at
+     * @param string $resolution
      * @return Collection
-     * @throws CryptoExchangeException
+     * @throws ExchangeException
      * @throws GuzzleException
      */
 
-    public function getMarketCandles(string $market, string $starting_from, string $ending_at): Collection
+    public function getMarketCandles(string $market, string $starting_from, string $ending_at, string $resolution): Collection
     {
         /**
          * Make Request.
@@ -297,8 +310,8 @@ class Nobitex
 
         $request = $this->client()->get('market/udf/history', [
             'query' =>  [
-                'symbol'   =>  $market,
-                'resolution'    =>  'D',
+                'symbol'   =>  Utils::getConcatenatedMarketName($market),
+                'resolution'    =>  $resolution,
                 'from'  =>  Carbon::parse($starting_from)->unix(),
                 'to'    =>  Carbon::parse($ending_at)->unix()
             ],
@@ -306,7 +319,7 @@ class Nobitex
 
         if ($request->getStatusCode() != 200){
 
-            throw new CryptoExchangeException(json_decode($request->getBody()->getContents()));
+            throw new ExchangeException(json_decode($request->getBody()->getContents())->message);
 
         }
 
@@ -314,7 +327,7 @@ class Nobitex
          * Cast and Return.
          */
 
-        return collect(json_decode($request->getBody()->getContents()));
+        return collect(json_decode($request->getBody()->getContents()))->except(['s']);
     }
 
     /**
@@ -328,7 +341,7 @@ class Nobitex
      * @param string $type
      * @param float|null $originalPrice
      * @return Collection
-     * @throws CryptoExchangeException|GuzzleException
+     * @throws ExchangeException|GuzzleException
      */
 
     public function createOrder(string $market, float $quantity, string $side, string $type, ?float $originalPrice = null): Collection
@@ -367,7 +380,7 @@ class Nobitex
 
         if (!in_array($side, ['BUY', 'SELL'])){
 
-            throw new CryptoExchangeException(trans('crypto-exchange::errors.sideNotValid'));
+            throw new ExchangeException(trans('crypto-exchange::errors.sideNotValid'));
 
         }
 
@@ -379,7 +392,7 @@ class Nobitex
 
         if (!in_array($type, ['LIMIT', 'MARKET'])){
 
-            throw new CryptoExchangeException(trans('crypto-exchange::errors.typeNotValid'));
+            throw new ExchangeException(trans('crypto-exchange::errors.typeNotValid'));
 
         }
 
@@ -411,7 +424,7 @@ class Nobitex
 
         if ($request->getStatusCode() != 200){
 
-            throw new CryptoExchangeException(json_decode($request->getBody()->getContents())->message);
+            throw new ExchangeException(json_decode($request->getBody()->getContents())->message);
 
         }
 
@@ -425,7 +438,7 @@ class Nobitex
     /**
      * @param string $order
      * @return Collection
-     * @throws CryptoExchangeException
+     * @throws ExchangeException
      * @throws GuzzleException
      */
 
@@ -444,7 +457,7 @@ class Nobitex
 
         if ($request->getStatusCode() != 200){
 
-            throw new CryptoExchangeException(json_decode($request->getBody()->getContents())->message);
+            throw new ExchangeException(json_decode($request->getBody()->getContents())->message);
 
         }
 
