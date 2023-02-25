@@ -30,13 +30,4 @@ class ExchangeServiceProvider extends ServiceProvider
             namespace: 'exchange'
         );
     }
-
-    /**
-     * @return string[]
-     */
-
-    public function provides(): array
-    {
-        return [Factory::class];
-    }
 }
